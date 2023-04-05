@@ -13,7 +13,7 @@ COPY gql /src/gql
 RUN npm_config_legacy_peer_deps=yes npm ci --no-audit --prefix react&& \
       npm run --prefix react build
 #########################################################################################
-FROM golang:1.19-bullseye as builder
+FROM golang:1.18-bullseye as builder
 
 RUN apt update && apt install -y \
       build-essential \
@@ -23,6 +23,7 @@ RUN apt update && apt install -y \
       gcc git \
       hwloc \
       jq \
+      nodejs \
       libhwloc-dev wget \
       mesa-opencl-icd \
       ocl-icd-opencl-dev
@@ -55,7 +56,16 @@ RUN set -eux; \
 WORKDIR /go/src/
 
 COPY Makefile /go/src/
+### make configurable filecoin-ffi build
+ARG FFI_BUILD_FROM_SOURCE=0
+ENV FFI_BUILD_FROM_SOURCE=${FFI_BUILD_FROM_SOURCE}
+##############################################
+# prebuild filecoin-ffi
+COPY extern /go/src/extern
+COPY build /go/src/build
+COPY .git/modules/extern/filecoin-ffi /go/src/.git/modules/extern/filecoin-ffi
 
+RUN make build/.filecoin-install
 ##############################################
 COPY . /go/src
 ##############################################
