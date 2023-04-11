@@ -73,7 +73,7 @@ func DefaultBoost() *Boost {
 		},
 
 		ContractDeals: ContractDealsConfig{
-			Enabled:            false,
+			Enabled:            true,
 			AllowlistContracts: []string{},
 			From:               "0x0000000000000000000000000000000000000000",
 		},
