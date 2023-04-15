@@ -60,7 +60,7 @@ BUILD_DEPS+=ffi-version-check
 $(MODULES): build/.update-modules ;
 # dummy file that marks the last time modules were updated
 build/.update-modules:
-	git submodule update --init --recursive
+	git submodule update --init --recursive || echo "git submodule update failed"
 	touch $@
 
 # end git modules

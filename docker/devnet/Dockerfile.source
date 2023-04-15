@@ -13,7 +13,7 @@ COPY gql /src/gql
 RUN npm_config_legacy_peer_deps=yes npm ci --no-audit --prefix react&& \
       npm run --prefix react build
 #########################################################################################
-FROM golang:1.18-bullseye as builder
+FROM golang:1.19-bullseye as builder
 
 RUN apt update && apt install -y \
       build-essential \
@@ -23,6 +23,7 @@ RUN apt update && apt install -y \
       gcc git \
       hwloc \
       jq \
+      nodejs \
       libhwloc-dev wget \
       mesa-opencl-icd \
       ocl-icd-opencl-dev
