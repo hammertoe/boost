@@ -59,11 +59,14 @@ func DefaultBoost() *Boost {
 		Common: defCommon(),
 
 		Storage: StorageConfig{
-			ParallelFetchLimit: 10,
+			ParallelFetchLimit:            10,
+			StorageListRefreshDuration:    Duration(time.Hour * 1),
+			RedeclareOnStorageListRefresh: true,
 		},
 
 		Graphql: GraphqlConfig{
-			Port: 8080,
+			ListenAddress: "0.0.0.0",
+			Port:          8080,
 		},
 
 		Tracing: TracingConfig{
@@ -123,6 +126,7 @@ func DefaultBoost() *Boost {
 			HttpTransferStallCheckPeriod:       Duration(30 * time.Second),
 			DealLogDurationDays:                30,
 			SealingPipelineCacheTimeout:        Duration(30 * time.Second),
+			FundsTaggingEnabled:                true,
 		},
 
 		LotusDealmaking: lotus_config.DealmakingConfig{

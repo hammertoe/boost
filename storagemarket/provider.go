@@ -45,6 +45,7 @@ import (
 var (
 	ErrDealNotFound        = fmt.Errorf("deal not found")
 	ErrDealHandlerNotFound = errors.New("deal handler not found")
+	ErrDealNotSealed       = errors.New("storage failed - deal not found in sector")
 )
 
 var (
@@ -239,10 +240,10 @@ func (p *Provider) GetAsk() *storagemarket.SignedStorageAsk {
 
 // ImportOfflineDealData is called when the Storage Provider imports data for
 // an offline deal (the deal must already have been proposed by the client)
-func (p *Provider) ImportOfflineDealData(ctx context.Context, dealUuid uuid.UUID, filePath string) (pi *api.ProviderDealRejectionInfo, err error) {
-	p.dealLogger.Infow(dealUuid, "import data for offline deal", "filepath", filePath)
+func (p *Provider) ImportOfflineDealData(ctx context.Context, dealUuid uuid.UUID, filePath string, delAfterImport bool) (pi *api.ProviderDealRejectionInfo, err error) {
+	p.dealLogger.Infow(dealUuid, "import data for offline deal", "filepath", filePath, "delete after import", delAfterImport)
 
-	// db should already have a deal with this uuid as the deal proposal should have been agreed before hand
+	// db should already have a deal with this uuid as the deal proposal should have been made beforehand
 	ds, err := p.dealsDB.ByID(p.ctx, dealUuid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -258,6 +259,7 @@ func (p *Provider) ImportOfflineDealData(ctx context.Context, dealUuid uuid.UUID
 	}
 
 	ds.InboundFilePath = filePath
+	ds.CleanupData = delAfterImport
 
 	resp, err := p.checkForDealAcceptance(ctx, ds, true)
 	if err != nil {
@@ -265,12 +267,12 @@ func (p *Provider) ImportOfflineDealData(ctx context.Context, dealUuid uuid.UUID
 		return nil, fmt.Errorf("failed to send deal for acceptance: %w", err)
 	}
 
-	// if there was an error, we don't return a rejection reason
+	// if there was an error, we just return the error message (there is no rejection reason)
 	if resp.err != nil {
 		return nil, fmt.Errorf("failed to accept deal: %w", resp.err)
 	}
 
-	// return rejection reason as provider has rejected the deal.
+	// return rejection reason as provider has rejected the deal
 	if !resp.ri.Accepted {
 		p.dealLogger.Infow(dealUuid, "deal execution rejected by provider", "reason", resp.ri.Reason)
 		return resp.ri, nil
@@ -297,6 +299,7 @@ func (p *Provider) ExecuteDeal(ctx context.Context, dp *types.DealParams, client
 		DealDataRoot:       dp.DealDataRoot,
 		Transfer:           dp.Transfer,
 		IsOffline:          dp.IsOffline,
+		CleanupData:        !dp.IsOffline,
 		Retry:              smtypes.DealRetryAuto,
 		FastRetrieval:      !dp.RemoveUnsealedCopy,
 		AnnounceToIPNI:     !dp.SkipIPNIAnnounce,
@@ -444,7 +447,7 @@ func (p *Provider) Start() error {
 		// Check if deal is already proving
 		if deal.Checkpoint >= dealcheckpoints.IndexedAndAnnounced {
 			si, err := p.sps.SectorsStatus(p.ctx, deal.SectorID, false)
-			if err != nil || isFinalSealingState(si.State) {
+			if err != nil || IsFinalSealingState(si.State) {
 				continue
 			}
 		}
@@ -454,6 +457,12 @@ func (p *Provider) Start() error {
 		dh, err := p.mkAndInsertDealHandler(deal.DealUuid)
 		if err != nil {
 			p.dealLogger.LogError(deal.DealUuid, "failed to restart deal", err)
+			continue
+		}
+
+		// Fail deals if start epoch has passed
+		if err := p.checkDealProposalStartEpoch(deal); err != nil {
+			go p.failDeal(dh.Publisher, deal, err, false)
 			continue
 		}
 
@@ -561,6 +570,32 @@ func (p *Provider) RetryPausedDeal(dealUuid uuid.UUID) error {
 // FailPausedDeal moves a deal from the paused state to the failed state
 func (p *Provider) FailPausedDeal(dealUuid uuid.UUID) error {
 	return p.updateRetryState(dealUuid, false)
+}
+
+// CancelOfflineDealAwaitingImport moves an offline deal from waiting for data state to the failed state
+func (p *Provider) CancelOfflineDealAwaitingImport(dealUuid uuid.UUID) error {
+	pds, err := p.dealsDB.ByID(p.ctx, dealUuid)
+	if err != nil {
+		return fmt.Errorf("failed to lookup deal in DB: %w", err)
+	}
+	if !pds.IsOffline {
+		return errors.New("cannot cancel an online deal")
+	}
+
+	if pds.InboundFilePath != "" {
+		return errors.New("deal has already started importing data")
+	}
+
+	dh := p.getDealHandler(dealUuid)
+	if dh == nil {
+		return ErrDealHandlerNotFound
+	}
+
+	if !dh.isRunning() {
+		return p.updateRetryState(dealUuid, false)
+	}
+
+	return errors.New("deal is already running")
 }
 
 // updateRetryState either retries the deal or terminates the deal

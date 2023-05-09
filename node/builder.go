@@ -169,6 +169,7 @@ const (
 	SettlePaymentChannelsKey
 	RunPeerTaggerKey
 	SetupFallbackBlockstoresKey
+	HandleSetLinkSystem
 
 	SetApiEndpointKey
 
@@ -426,6 +427,7 @@ var BoostNode = Options(
 	Override(new(*db.LogsDB), modules.NewLogsDB),
 	Override(new(*db.ProposalLogsDB), modules.NewProposalLogsDB),
 	Override(new(*db.FundsDB), modules.NewFundsDB),
+	Override(new(*db.SectorStateDB), modules.NewSectorStateDB),
 	Override(new(*rtvllog.RetrievalLogDB), modules.NewRetrievalLogDB),
 )
 
@@ -480,6 +482,7 @@ func ConfigBoost(cfg *config.Boost) Option {
 		Override(new(*paths.Remote), lotus_modules.RemoteStorage),
 
 		Override(new(*fundmanager.FundManager), fundmanager.New(fundmanager.Config{
+			Enabled:      cfg.Dealmaking.FundsTaggingEnabled,
 			StorageMiner: walletMiner,
 			CollatWallet: walletDealCollat,
 			PubMsgWallet: walletPSD,
@@ -507,6 +510,7 @@ func ConfigBoost(cfg *config.Boost) Option {
 		Override(new(*storagemarket.Provider), modules.NewStorageMarketProvider(walletMiner, cfg)),
 
 		// GraphQL server
+		Override(new(gql.BlockGetter), From(new(dtypes.IndexBackedBlockstore))),
 		Override(new(*gql.Server), modules.NewGraphqlServer(cfg)),
 
 		// Tracing
@@ -521,6 +525,8 @@ func ConfigBoost(cfg *config.Boost) Option {
 		Override(new(dtypes.ProviderTransferNetwork), modules.NewProviderTransferNetwork),
 		Override(new(*modules.ProxyAskGetter), modules.NewAskGetter),
 		Override(new(server.AskGetter), From(new(*modules.ProxyAskGetter))),
+		Override(new(*modules.LinkSystemProv), modules.NewLinkSystemProvider),
+		Override(new(server.LinkSystemProvider), From(new(*modules.LinkSystemProv))),
 		Override(new(*server.GraphsyncUnpaidRetrieval), modules.RetrievalGraphsync(cfg.LotusDealmaking.SimultaneousTransfersForStorage, cfg.LotusDealmaking.SimultaneousTransfersForStoragePerClient, cfg.LotusDealmaking.SimultaneousTransfersForRetrieval)),
 		Override(new(dtypes.StagingGraphsync), From(new(*server.GraphsyncUnpaidRetrieval))),
 		Override(new(dtypes.ProviderPieceStore), modules.NewProviderPieceStore),
@@ -572,6 +578,7 @@ func ConfigBoost(cfg *config.Boost) Option {
 		Override(HandleBoostDealsKey, modules.HandleBoostLibp2pDeals),
 		Override(HandleContractDealsKey, modules.HandleContractDeals(&cfg.ContractDeals)),
 		Override(HandleProposalLogCleanerKey, modules.HandleProposalLogCleaner(time.Duration(cfg.Dealmaking.DealProposalLogDuration))),
+		Override(HandleSetLinkSystem, modules.SetLinkSystem),
 
 		// Boost storage deal filter
 		Override(new(dtypes.StorageDealFilter), modules.BasicDealFilter(cfg.Dealmaking, nil)),
